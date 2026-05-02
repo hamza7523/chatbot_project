@@ -14,33 +14,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Existing model for UI
 class ChatRequest(BaseModel):
     prompt_id: int
+
+# NEW: Model for AWS Lambda (File-based processing)
+class ExternalChatRequest(BaseModel):
+    prompt_text: str
 
 @app.get("/health")
 def health_check():
     return { "status": "ok" }
 
+# 1. NEW ENDPOINT FOR ASSIGNMENT #2 (S3 + Lambda)
+@app.post("/api/external/chat")
+async def external_chat(request: ExternalChatRequest):
+    try:
+        # This bypasses MongoDB and sends the S3 file content directly to Gemini
+        print(f"📥 Received prompt from S3 file via Lambda: {request.prompt_text[:50]}...")
+        reply = await ask_gemini(request.prompt_text)
+        return { "reply": reply }
+    except Exception as e:
+        print("ERROR:", str(e))
+        return { "reply": f"Error: {str(e)}" }
+
+# 2. EXISTING ENDPOINT (For UI/MongoDB flow)
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     try:
-        # Step 1 — query database
-        print(f" Looking for prompt_id: {request.prompt_id}")
         prompt_doc = await db.prompts.find_one({"id": request.prompt_id}, {"_id": 0})
-        print(f" Prompt found: {prompt_doc}")
-
         if not prompt_doc:
-            return { "reply": "Invalid option. Please enter 1, 2, or 3." }
-
-        # Step 2 — send to Gemini
-        print(" Sending to Gemini...")
+            return { "reply": "Invalid ID." }
         reply = await ask_gemini(prompt_doc["system_prompt"])
-        print(f" Gemini replied: {reply[:50]}")
-
         return { "reply": reply }
-
     except Exception as e:
-        # Print the FULL error to terminal
-        print(" ERROR:", str(e))
-        traceback.print_exc()
         return { "reply": f"Error: {str(e)}" }
