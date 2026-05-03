@@ -19,6 +19,8 @@ google-generativeai==0.8.6
 googleapis-common-protos==1.73.0
 google-api-core[grpc]
 grpcio-status
+boto3
+botocore.config
 
 grpcio==1.78.0
 h11==0.16.0
