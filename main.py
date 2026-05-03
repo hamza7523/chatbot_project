@@ -9,7 +9,7 @@ from botocore.config import Config
 
 # --- CONFIGURATION ---
 # These should match your AWS setup exactly
-INPUT_BUCKET = "ai-briefs-input-hamza7523"
+INPUT_BUCKET = "ai-prompts-input-hamza7523" 
 OUTPUT_BUCKET = "ai-responses-output-hamza7523"
 REGION = "ap-southeast-2" 
 
