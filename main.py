@@ -56,7 +56,7 @@ async def get_upload_url(filename: str):
             Params={
                 'Bucket': INPUT_BUCKET, 
                 'Key': filename, 
-                'ContentType': 'text/plain'
+                
             },
             ExpiresIn=300 # URL valid for 5 minutes
         )
