@@ -139,7 +139,7 @@ h1 em { font-style: italic; color: var(--ink3); }
 
 <script>
 // --- CONFIGURATION ---
-const BACKEND_URL = "http://3.26.12.202:8000"; // <--- CHANGE THIS TO YOUR EC2 IP
+const BACKEND_URL = "http://15.134.224.67:8000"; // <--- CHANGE THIS TO YOUR EC2 IP
 
 let chosenFile = null;
 let pipeStart = 0;
@@ -190,7 +190,6 @@ async function run() {
     sub(1, 'Uploading…');
     const upload = await fetch(uploadUrl, {
       method: 'PUT',
-      headers: { 'Content-Type': 'text/plain' },
       body: chosenFile
     });
 
