@@ -1,217 +1,384 @@
-# BriefAI — Instant Freelance Proposal Generator
+# BriefAI — Serverless Freelance Proposal Generator
 
-A serverless, event-driven web application that transforms a client's project brief into a professional AI-generated proposal in under 30 seconds.
-
----
-
-## 🧠 What We Built
-
-BriefAI is a full-stack cloud application where a user uploads a `.txt` client brief through a frontend UI. The file is securely stored in AWS S3, which automatically triggers a Lambda function. Lambda reads the brief, wraps it in a professional system prompt, and sends it to a FastAPI backend running on EC2. The backend calls the Google Gemini API to generate a tailored proposal, which is saved back to S3. The frontend polls for the result and displays it when ready.
+> A learning project built to understand **serverless compute architecture** and **AWS Lambda event-driven pipelines**. The AI layer uses Google Gemini, but the model is intentionally abstracted — it can be swapped for any company's fine-tuned LLM without touching the infrastructure.
 
 ---
 
-## 🏗️ Architecture Overview
+## Overview
+
+BriefAI lets a freelancer upload a plain-text client brief through a web UI. The file triggers a serverless pipeline that analyzes the brief and returns a structured proposal — with deliverables, timeline, and pricing — in under 30 seconds.
+
+The core goal was not to build a chatbot. It was to understand **how S3 event triggers, Lambda execution, and async backend communication work together** as a serverless pattern — and why this matters for production ML systems.
+
+![BriefAI Landing Page](./ui-hero.png)
+
+<img width="1859" height="880" alt="image" src="https://github.com/user-attachments/assets/3ac07bb7-2a21-42a4-ae8a-4773179697d3" />
+
+---
+
+## Architecture
 
 ```
-User Browser
+Client Browser
      │
-     │  1. Request presigned URL
+     │  PUT .txt file
      ▼
-FastAPI on EC2 (Port 8000)
+Amazon S3 (input bucket)
      │
-     │  2. Return presigned S3 URL
+     │  S3 Event Notification (ObjectCreated)
      ▼
-AWS S3 — Input Bucket (ai-prompts-input-hamza7523)
+AWS Lambda (Python 3.14)
      │
-     │  3. S3 PUT event triggers Lambda
+     │  HTTP POST  { "prompt_text": "..." }
      ▼
-AWS Lambda Function
+FastAPI Backend (EC2)
      │
-     │  4. Read brief + prepend system prompt
-     │  5. POST to FastAPI /api/external/chat
+     │  Gemini API call
      ▼
-FastAPI on EC2
+Google Gemini 2.5 Flash
      │
-     │  6. Call Google Gemini API
+     │  Generated proposal text
      ▼
-Google Gemini (generativelanguage.googleapis.com)
+Amazon S3 (output bucket)
      │
-     │  7. Return generated proposal
+     │  UI polls → reads response
      ▼
-AWS Lambda
-     │
-     │  8. Save response_to_<filename>.txt
-     ▼
-AWS S3 — Output Bucket (ai-responses-output-hamza7523)
-     │
-     │  9. Frontend polls for result via presigned URL
-     ▼
-User Browser — Proposal displayed
+Client Browser (displays proposal)
 ```
+
+**Why this architecture?** S3 → Lambda → API is a common event-driven pattern in production ML systems — used for batch inference, document processing pipelines, and async prediction jobs. Understanding how to wire these pieces together was the main learning objective.
 
 ---
 
-## 🛠️ Tech Stack
+## What I Learned
+
+- How S3 event notifications trigger Lambda functions on file upload
+- How Lambda reads from one S3 bucket and writes results to another
+- The difference between synchronous API calls and async event-driven processing
+- How to structure a FastAPI backend to accept payloads from serverless functions
+- Why decoupling the compute layer (Lambda) from the model layer (Gemini/any LLM) matters for maintainability
+
+---
+
+## Model Abstraction
+
+The current implementation uses **Google Gemini 2.5 Flash** via the `google-generativeai` SDK. The model call is isolated in `services/gemini_service.py` and is the only place in the codebase that knows which model is being used.
+
+This means the Gemini call can be replaced with:
+- A company's **fine-tuned LLM** hosted on a custom endpoint
+- An **OpenAI-compatible API** (Azure OpenAI, Together AI, etc.)
+- A **locally hosted model** via Ollama or vLLM on the same EC2 instance
+- An **Amazon Bedrock** model for a fully AWS-native stack
+
+The Lambda function, S3 trigger, and FastAPI routing stay completely unchanged. Only `services/gemini_service.py` needs to be updated.
+
+---
+
+## Screenshots
+
+### S3 Buckets — Input and Output
+
+Two buckets: one receives the uploaded brief, one stores the generated proposal after Lambda writes it back.
+
+![S3 Buckets](./s3-buckets.png)
+
+<img width="1052" height="481" alt="image" src="https://github.com/user-attachments/assets/28124ca6-5435-44c4-be15-fbaaf7b96931" />
+
+
+### Lambda Execution Logs (CloudWatch)
+
+End-to-end trace showing the S3 trigger firing, the EC2 backend being called, and the response being saved — total duration ~18 seconds including Gemini generation time.
+
+![Lambda CloudWatch Logs](./lambda-logs.png)
+<img width="1528" height="640" alt="image" src="https://github.com/user-attachments/assets/797e0081-47b6-4a06-a1dd-313e0de39b24" />
+
+---
+
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | Vanilla HTML/CSS/JS (Live Server) |
-| Backend API | FastAPI (Python) on AWS EC2 |
-| AI Model | Google Gemini via `google-generativeai` |
-| File Storage | AWS S3 (two buckets) |
-| Event Trigger | AWS Lambda (S3 PUT event) |
-| Auth | AWS IAM Roles + Presigned URLs |
-| HTTP (Lambda) | `urllib3` |
-| Process Manager | Uvicorn |
+| Frontend | Vanilla HTML/CSS/JS — single file, no framework |
+| File storage | AWS S3 (input + output buckets) |
+| Serverless compute | AWS Lambda (Python 3.14, triggered by S3 events) |
+| Backend | FastAPI on EC2 (ap-southeast-2) |
+| LLM | Google Gemini 2.5 Flash (swappable) |
+| Database | MongoDB Atlas via Motor (async) |
+| Config | python-dotenv |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-chatbot_project/
-├── main.py                  # FastAPI app — endpoints, S3 presigned URLs
+briefai/
+├── main.py                   # FastAPI app — two endpoints
 ├── services/
-│   └── gemini_service.py    # Gemini API call logic
+│   └── gemini_service.py     # LLM abstraction layer (swap model here)
 ├── database/
-│   └── connection.py        # MongoDB connection (legacy flow)
-├── models/                  # Pydantic request models
+│   ├── connection.py         # MongoDB async client
+│   └── seed.py               # Seed prompt templates
+├── lambda/
+│   └── handler.py            # Lambda function — S3 trigger → EC2 → S3
+├── frontend/
+│   └── index.html            # Single-page UI
 ├── requirements.txt
-└── venv/                    # Python virtual environment
-
-lambda_function.py           # AWS Lambda — event handler + system prompt
-index.html                   # Frontend — single file UI
+└── .env.example
 ```
 
 ---
 
-## ☁️ AWS Services Used
+## Running Locally
 
-### S3 (Simple Storage Service)
-- **Input bucket** (`ai-prompts-input-hamza7523`): Receives uploaded `.txt` briefs from the frontend via presigned PUT URLs
-- **Output bucket** (`ai-responses-output-hamza7523`): Stores AI-generated proposals written by Lambda
-- **Presigned URLs**: Temporary signed URLs that allow the browser to upload/download directly to/from S3 without exposing AWS credentials
-- **CORS Policy**: Configured on both buckets to allow browser requests from any origin
-
-### Lambda
-- Triggered automatically on every S3 `PUT` event in the input bucket
-- Stateless function that reads the brief, builds the prompt, calls EC2, and writes the result
-- Uses IAM execution role for S3 read/write permissions
-
-### EC2 (Elastic Compute Cloud)
-- Runs the FastAPI server on port 8000
-- Attached IAM Role (`myrole`) grants it permission to generate presigned S3 URLs
-- Uvicorn serves the ASGI app
-
-### IAM (Identity & Access Management)
-- EC2 IAM Role with `s3:PutObject`, `s3:GetObject`, `s3:ListBucket` permissions
-- Lambda execution role with S3 read/write access
-- No hardcoded credentials — all auth done via IAM roles
-
----
-
-## 🔑 Key Concepts
-
-### Presigned URLs
-Instead of routing file uploads through the backend server, the frontend requests a temporary signed URL from FastAPI, then uploads the file **directly to S3** from the browser. This keeps the EC2 server lightweight and avoids large file transfers through it.
-
-```
-Browser → GET /api/generate-upload-url → FastAPI → S3 presigned PUT URL
-Browser → PUT file directly to S3 using that URL
-```
-
-### Event-Driven Architecture
-Rather than polling a backend or using WebSockets, the system uses S3 events to drive processing. When a file lands in S3, AWS automatically invokes Lambda — no cron job or manual trigger needed. This is a core serverless pattern.
-
-### System Prompt Engineering
-The Lambda function prepends a structured system prompt to the user's raw brief before sending it to Gemini. This instructs the model to act as a professional proposal writer and produce structured output including approach, deliverables, timeline, and closing.
-
-```python
-full_prompt = SYSTEM_PROMPT + brief_text + "\n---\nNow write the proposal:"
-```
-
-### Polling Pattern
-Since AI generation takes time, the frontend uses a polling loop — checking S3 every 4 seconds for the result file (`response_to_<filename>.txt`) up to 30 times before timing out.
-
-### CORS (Cross-Origin Resource Sharing)
-Two layers of CORS configuration were required:
-1. **FastAPI** — `CORSMiddleware` to allow browser requests to the EC2 API
-2. **S3** — Bucket CORS policy to allow browser `PUT`/`GET` requests directly to S3
-
----
-
-## 🚀 How to Run Locally / Deploy
-
-### EC2 Setup
 ```bash
-# Clone project
-git clone <your-repo>
-cd chatbot_project
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
 # Install dependencies
 pip install -r requirements.txt
 
-# Set Gemini API key
-export GEMINI_API_KEY=your_key_here
+# Set environment variables
+cp .env.example .env
+# Fill in MONGODB_URL, GEMINI_API_KEY, DATABASE_NAME
 
-# Start server
-uvicorn main:app --host 0.0.0.0 --port 8000
+# Start the server
+uvicorn main:app --reload --port 8000
 ```
 
-### Environment Variables Required
-| Variable | Where | Description |
+**Endpoints:**
+
+| Method | Path | Description |
 |---|---|---|
-| `GEMINI_API_KEY` | EC2 / gemini_service.py | Google Gemini API key |
-| `INPUT_BUCKET` | main.py | S3 input bucket name |
-| `OUTPUT_BUCKET` | main.py / Lambda | S3 output bucket name |
-| `REGION` | main.py | AWS region (e.g. ap-southeast-2) |
-| `BACKEND_URL` | Lambda | EC2 FastAPI endpoint |
-
-### Frontend
-Open `index.html` with VS Code Live Server or any static file server. Update `BACKEND_URL` in the script tag to your EC2 public IP.
+| `GET` | `/health` | Health check |
+| `POST` | `/api/chat` | Fetch prompt from MongoDB by ID and send to Gemini |
+| `POST` | `/api/external/chat` | Accept raw prompt text — used by Lambda |
 
 ---
 
-## ⚠️ Common Issues & Fixes
+## Lambda Setup
 
-| Issue | Cause | Fix |
-|---|---|---|
-| `Unable to locate credentials` | No IAM Role on EC2 | Attach IAM Role with S3 permissions |
-| `403 Forbidden` on S3 PUT | Wrong bucket name in IAM policy | Update ARN to correct bucket name |
-| CORS error on S3 | Missing S3 CORS policy | Add CORS config to both buckets |
-| `ERR_CONNECTION_REFUSED` | FastAPI server crashed | Restart uvicorn on EC2 |
-| `API_KEY_INVALID` | Expired Gemini key | Generate new key at aistudio.google.com |
-| Lambda not triggering | No S3 event trigger configured | Add S3 PUT trigger to Lambda function |
+The Lambda function (`lambda/handler.py`) is configured with:
+- **Trigger:** S3 `ObjectCreated` event on the input bucket
+- **Runtime:** Python 3.14
+- **Timeout:** 60 seconds (Gemini generation can take 15–20s)
+- **Memory:** 512 MB
+- **Output:** Writes `response_to_{filename}.txt` to the output bucket
+
+> **Note:** The Lambda reads the FastAPI response using `response_data.get('reply')` — make sure this matches the key returned by your backend.
 
 ---
+---
 
-## 📝 Sample Client Brief
+## File Structure
 
 ```
-Project: E-commerce Website for Handmade Jewelry Store
-Client: Sarah's Jewelry Co.
-
-I run a small handmade jewelry business and need a professional 
-e-commerce website. Requirements include product catalog, Stripe 
-checkout, mobile-friendly design, and a simple admin panel.
-
-Budget: $800 - $1200
-Timeline: 6 weeks
+briefai/
+│
+├── main.py                        # FastAPI entry point
+│                                  # Two endpoints:
+│                                  #   POST /api/chat          → MongoDB prompt by ID → Gemini
+│                                  #   POST /api/external/chat → raw prompt text → Gemini (used by Lambda)
+│
+├── services/
+│   ├── __init__.py
+│   ├── gemini_service.py          # Only file that talks to Gemini
+│   │                              # Swap this file to change the model
+│   └── prompt_service.py          # (extendable) prompt management helpers
+│
+├── database/
+│   ├── __init__.py
+│   ├── connection.py              # Async MongoDB client via Motor
+│   └── seed.py                    # Seeds prompt templates into MongoDB
+│                                  # Run once: python database/seed.py
+│
+├── models/
+│   ├── prompt.py                  # Pydantic schemas for prompts
+│   └── order.py                   # Pydantic schemas for orders
+│
+├── lambda/
+│   └── handler.py                 # AWS Lambda function
+│                                  # Triggered by S3 ObjectCreated event
+│                                  # Reads brief → calls FastAPI → writes response to output bucket
+│
+├── frontend/
+│   └── index.html                 # Single-file UI — no framework, no build step
+│                                  # Uploads .txt to S3 directly using AWS SDK
+│                                  # Polls output bucket for the generated proposal
+│
+├── test_db.py                     # Quick script to verify MongoDB connection
+├── requirements.txt
+├── .env                           # Never commit this
+└── .env.example                   # Commit this instead
 ```
-
-Upload this as a `.txt` file to see BriefAI generate a full proposal.
 
 ---
 
-## 📚 Concepts to Study Further
+## Self-Hosting Setup
 
-- [AWS S3 Presigned URLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)
-- [AWS Lambda Event Sources](https://docs.aws.amazon.com/lambda/latest/dg/invocation-eventsourcemapping.html)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [Google Gemini API](https://ai.google.dev/docs)
-- [IAM Roles for EC2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html)
-- [CORS on S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/cors.html)
+This project has three independent pieces you need to set up: the FastAPI backend on EC2, the Lambda function on AWS, and the frontend locally. Follow the steps in order.
+
+### Prerequisites
+
+- Python 3.10+
+- An AWS account with programmatic access (Access Key + Secret Key)
+- A MongoDB Atlas account (free tier works)
+- A Google AI Studio account for the Gemini API key
+
+---
+
+### Step 1 — Clone and configure environment
+
+```bash
+git clone https://github.com/your-username/briefai.git
+cd briefai
+
+pip install -r requirements.txt
+
+cp .env.example .env
+```
+
+Open `.env` and fill in your values:
+
+```env
+MONGODB_URL=mongodb+srv://<user>:<password>@cluster0.xxxx.mongodb.net/?appName=Cluster0
+GEMINI_API_KEY=your_gemini_api_key_here
+DATABASE_NAME=freelance_db
+```
+
+Get your Gemini key at [aistudio.google.com](https://aistudio.google.com). MongoDB URL comes from your Atlas cluster's **Connect → Drivers** page.
+
+---
+
+### Step 2 — Seed the database
+
+This inserts the default prompt templates into MongoDB. Only needs to run once.
+
+```bash
+python database/seed.py
+```
+
+Verify it worked:
+
+```bash
+python test_db.py
+# Expected output:
+# ✅ Connected! Collections: ['prompts']
+# 📄 Prompts in DB: 3
+```
+
+---
+
+### Step 3 — Run the FastAPI backend
+
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Test it is running:
+
+```bash
+curl http://localhost:8000/health
+# { "status": "ok" }
+```
+
+For production, run this on an EC2 instance. Make sure port 8000 is open in your EC2 security group inbound rules (Custom TCP, port 8000, source 0.0.0.0/0).
+
+---
+
+### Step 4 — Create S3 buckets
+
+Go to AWS S3 and create two buckets in the same region:
+
+| Bucket | Purpose |
+|---|---|
+| `ai-prompts-input-<yourname>` | Receives uploaded brief files from the UI |
+| `ai-responses-output-<yourname>` | Stores generated proposals written by Lambda |
+
+On each bucket, go to **Permissions → CORS** and paste this — required for the browser to upload directly:
+
+```json
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["GET", "PUT", "POST"],
+    "AllowedOrigins": ["*"],
+    "ExposeHeaders": []
+  }
+]
+```
+
+---
+
+### Step 5 — Deploy the Lambda function
+
+1. Go to **AWS Lambda → Create function**
+2. Choose **Author from scratch**, Runtime: **Python 3.12**
+3. Paste the contents of `lambda/handler.py` into the inline editor
+4. Update these two lines at the top of the file to match your setup:
+
+```python
+BACKEND_URL = "http://<your-ec2-public-ip>:8000/api/external/chat"
+OUTPUT_BUCKET = "ai-responses-output-<yourname>"
+```
+
+5. Under **Configuration → General**, set timeout to **60 seconds** and memory to **512 MB**
+
+6. Under **Configuration → Permissions**, attach a policy to the Lambda execution role that allows `s3:GetObject` on the input bucket and `s3:PutObject` on the output bucket:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["s3:GetObject"],
+  "Resource": "arn:aws:s3:::ai-prompts-input-<yourname>/*"
+},
+{
+  "Effect": "Allow",
+  "Action": ["s3:PutObject"],
+  "Resource": "arn:aws:s3:::ai-responses-output-<yourname>/*"
+}
+```
+
+7. Add the S3 trigger: **+ Add trigger → S3 → select input bucket → Event type: PUT**
+
+> **Important:** In `lambda/handler.py` line 27, make sure you read `response_data.get('reply')` not `response_data.get('response')` — `reply` is what the FastAPI endpoint returns.
+
+---
+
+### Step 6 — Open the frontend
+
+No build step needed. Just open `frontend/index.html` directly in your browser.
+
+Click **Connection settings** and fill in:
+
+| Field | Value |
+|---|---|
+| AWS Access Key | Your IAM user access key |
+| AWS Secret Key | Your IAM user secret key |
+| Input Bucket | `ai-prompts-input-<yourname>` |
+| Output Bucket | `ai-responses-output-<yourname>` |
+| Region | Your bucket region e.g. `ap-southeast-2` |
+
+Upload a `.txt` file containing a client brief and hit **Generate proposal**. The UI will upload to S3, wait for Lambda to process it, poll the output bucket, and display the result when ready.
+
+---
+
+### Common Issues
+
+**Upload fails with CORS error** — Make sure you added the CORS policy to your S3 input bucket in Step 4.
+
+**Lambda times out** — Gemini can take 15–20 seconds. Ensure Lambda timeout is set to at least 60 seconds.
+
+**No response in output bucket** — Check CloudWatch logs for your Lambda function. The most likely cause is either the EC2 backend is not running or port 8000 is blocked in your security group.
+
+**`reply` is empty** — Confirm your Lambda reads `response_data.get('reply')` and not `response_data.get('response')`.
+
+## Next Steps
+
+- [ ] Add MLflow experiment tracking to log prompt versions and response quality metrics
+- [ ] Expose a `/metrics` endpoint on FastAPI for Prometheus scraping
+- [ ] Build a Grafana dashboard showing proposal generation volume, Gemini latency, and Lambda duration over time
+- [ ] Add a pre-signed URL endpoint on FastAPI so the frontend doesn't need direct AWS credentials
+
+---
+
+## Author
+
+**Hamza** — Final year BS Computer Science, IBA Karachi (2026)  
+Focus: ML Infrastructure · MLOps · AI Engineering
