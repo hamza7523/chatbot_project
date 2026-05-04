@@ -91,6 +91,8 @@ End-to-end trace showing the S3 trigger firing, the EC2 backend being called, an
 
 ![Lambda CloudWatch Logs](./lambda-logs.png)
 <img width="1528" height="640" alt="image" src="https://github.com/user-attachments/assets/797e0081-47b6-4a06-a1dd-313e0de39b24" />
+<img width="1557" height="713" alt="image" src="https://github.com/user-attachments/assets/38115955-ccfe-4c05-9e71-f0adc1efe582" />
+
 
 ---
 
